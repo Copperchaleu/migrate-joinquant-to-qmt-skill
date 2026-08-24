@@ -2,6 +2,9 @@
 set -eu
 
 SKILL_NAME=migrate-joinquant-to-qmt
+REPOSITORY=Copperchaleu/migrate-joinquant-to-qmt-skill
+RELEASE_ROOT=${JQ2QMT_RELEASE_ROOT:-https://github.com/$REPOSITORY/releases/download}
+LATEST_URL=${JQ2QMT_LATEST_URL:-https://github.com/$REPOSITORY/releases/latest}
 PLATFORM=
 SCOPE=user
 PROJECT_DIR=$(pwd)
@@ -17,6 +20,7 @@ TARGET_ROOT=
 TEMP_DIR=
 TEMP_PARENT=
 STAGE_DIR=
+SOURCE_DESCRIPTION=
 
 umask 077
 
@@ -184,6 +188,146 @@ validate_skill() {
         echo "Error: SKILL.md frontmatter must contain exact name: $SKILL_NAME" >&2
         return 1
     fi
+}
+
+is_release_tag() {
+    candidate_tag=$1
+    [ "$(printf '%s\n' "$candidate_tag" | awk '
+        NR == 1 && $0 ~ /^v[0-9]+\.[0-9]+\.[0-9]+$/ { valid = 1; next }
+        { valid = 0 }
+        END { if (valid && NR == 1) print "yes" }
+    ')" = yes ]
+}
+
+resolve_release_tag() {
+    if [ -n "$VERSION" ]; then
+        if ! is_release_tag "$VERSION"; then
+            usage_error "--version must match vMAJOR.MINOR.PATCH"
+        fi
+        return 0
+    fi
+
+    if ! command -v curl >/dev/null 2>&1; then
+        echo "Error: curl is required for remote installation" >&2
+        return 1
+    fi
+    if ! effective_url=$(curl -fsSL -o /dev/null -w '%{url_effective}' "$LATEST_URL"); then
+        echo "Error: could not resolve latest release" >&2
+        return 1
+    fi
+    while [ "${effective_url%/}" != "$effective_url" ]; do
+        effective_url=${effective_url%/}
+    done
+    resolved_tag=${effective_url##*/}
+    if ! is_release_tag "$resolved_tag"; then
+        echo "Error: latest release did not resolve to a SemVer tag" >&2
+        return 1
+    fi
+    VERSION=$resolved_tag
+}
+
+download_release_file() {
+    remote_url=$1
+    destination=$2
+    if ! curl -fsSL -o "$destination" "$remote_url"; then
+        echo "Error: could not download release asset: $remote_url" >&2
+        return 1
+    fi
+}
+
+validate_archive_entries() {
+    archive_path=$1
+    if ! command -v unzip >/dev/null 2>&1; then
+        echo "Error: unzip is required for remote installation" >&2
+        return 1
+    fi
+    if ! archive_entries=$(unzip -Z1 "$archive_path"); then
+        echo "Error: could not list release archive" >&2
+        return 1
+    fi
+    if [ -z "$archive_entries" ]; then
+        echo "Error: release archive is empty" >&2
+        return 1
+    fi
+    while IFS= read -r archive_entry; do
+        case "$archive_entry" in
+            /*|../*|*/../*|*/..)
+                echo "Error: release archive contains an unsafe path: $archive_entry" >&2
+                return 1
+                ;;
+            "$SKILL_NAME"/*) ;;
+            *)
+                echo "Error: release archive contains an unexpected root: $archive_entry" >&2
+                return 1
+                ;;
+        esac
+    done <<EOF
+$archive_entries
+EOF
+
+    if ! archive_listing=$(unzip -Z -l "$archive_path"); then
+        echo "Error: could not inspect release archive entry types" >&2
+        return 1
+    fi
+    if printf '%s\n' "$archive_listing" | awk '
+        substr($1, 1, 1) == "l" { found = 1 }
+        END { exit(found ? 0 : 1) }
+    '; then
+        echo "Error: release archive contains a symbolic link" >&2
+        return 1
+    fi
+}
+
+prepare_remote_source() {
+    resolve_release_tag
+    if ! command -v curl >/dev/null 2>&1; then
+        echo "Error: curl is required for remote installation" >&2
+        return 1
+    fi
+    prepare_temp
+
+    archive_name=$SKILL_NAME-$VERSION.zip
+    archive_url=$RELEASE_ROOT/$VERSION/$archive_name
+    checksum_url=$RELEASE_ROOT/$VERSION/SHA256SUMS
+    archive_path=$TEMP_DIR/$archive_name
+    checksum_path=$TEMP_DIR/SHA256SUMS
+    download_release_file "$archive_url" "$archive_path"
+    download_release_file "$checksum_url" "$checksum_path"
+
+    if ! expected_hash=$(awk -v archive_name="$archive_name" '
+        NF == 2 && $2 == archive_name && length($1) == 64 &&
+            $1 !~ /[^0123456789abcdefABCDEF]/ {
+                count += 1
+                digest = tolower($1)
+            }
+        END {
+            if (count != 1) exit 1
+            print digest
+        }
+    ' "$checksum_path"); then
+        echo "Error: SHA256SUMS does not contain exactly one valid checksum for $archive_name" >&2
+        return 1
+    fi
+    if ! actual_hash=$(hash_file "$archive_path"); then
+        echo "Error: could not hash downloaded release archive" >&2
+        return 1
+    fi
+    actual_hash=$(printf '%s\n' "$actual_hash" | tr 'ABCDEF' 'abcdef')
+    if [ "$actual_hash" != "$expected_hash" ]; then
+        echo "Error: release archive checksum mismatch" >&2
+        return 1
+    fi
+
+    validate_archive_entries "$archive_path"
+    extract_root=$TEMP_DIR/extracted
+    mkdir "$extract_root"
+    if ! unzip -q "$archive_path" -d "$extract_root"; then
+        echo "Error: could not extract release archive" >&2
+        return 1
+    fi
+    SOURCE_DIR=$extract_root/$SKILL_NAME
+    SOURCE_DESCRIPTION=$archive_url
+    validate_skill "$SOURCE_DIR"
 }
 
 hash_file() {
@@ -404,7 +548,7 @@ install_local() {
         printf 'platform=%s\n' "$PLATFORM"
         printf 'scope=%s\n' "$SCOPE"
         printf 'version=%s\n' "${VERSION:-local}"
-        printf 'source=%s\n' "$source_path"
+        printf 'source=%s\n' "${SOURCE_DESCRIPTION:-$source_path}"
         printf 'content_hash=%s\n' "$source_hash"
     } >"$STAGE_DIR/.jq2qmt-install"
 
@@ -513,12 +657,17 @@ process_platform() {
 
 if [ "$UNINSTALL" -ne 1 ]; then
     if [ -z "$SOURCE_DIR" ]; then
-        usage_error "--source is required for local installation"
+        prepare_remote_source
+    else
+        if ! SOURCE_DIR=$(CDPATH= cd -- "$SOURCE_DIR" 2>/dev/null && pwd -P); then
+            usage_error "source directory does not exist: $SOURCE_DIR"
+        fi
+        SOURCE_DESCRIPTION=$SOURCE_DIR
+        if [ -n "$VERSION" ] && ! is_release_tag "$VERSION"; then
+            usage_error "--version must match vMAJOR.MINOR.PATCH"
+        fi
+        validate_skill "$SOURCE_DIR"
     fi
-    if ! SOURCE_DIR=$(CDPATH= cd -- "$SOURCE_DIR" 2>/dev/null && pwd -P); then
-        usage_error "source directory does not exist: $SOURCE_DIR"
-    fi
-    validate_skill "$SOURCE_DIR"
 fi
 
 if [ -z "$PLATFORM" ]; then

@@ -5,7 +5,19 @@ REPO=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd -P)
 INSTALLER=$REPO/installers/install.sh
 SKILL_NAME=migrate-joinquant-to-qmt
 TEST_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/jq2qmt-test.XXXXXX")
-trap 'rm -rf "$TEST_ROOT"' EXIT HUP INT TERM
+HTTP_PID=
+
+cleanup_test() {
+    cleanup_status=$?
+    trap - EXIT HUP INT TERM
+    if [ -n "$HTTP_PID" ]; then
+        kill "$HTTP_PID" 2>/dev/null || true
+        wait "$HTTP_PID" 2>/dev/null || true
+    fi
+    rm -rf "$TEST_ROOT"
+    exit "$cleanup_status"
+}
+trap cleanup_test EXIT HUP INT TERM
 
 fail() {
     echo "FAIL: $*" >&2
@@ -35,6 +47,23 @@ count_backups() {
         fi
     done
     printf '%s\n' "$backup_count"
+}
+
+write_checksum() {
+    checksum_archive=$1
+    checksum_file=$2
+    python3 - "$checksum_archive" "$checksum_file" <<'PY'
+import hashlib
+import pathlib
+import sys
+
+archive = pathlib.Path(sys.argv[1])
+checksum = pathlib.Path(sys.argv[2])
+checksum.write_text(
+    hashlib.sha256(archive.read_bytes()).hexdigest() + "  " + archive.name + "\n",
+    encoding="ascii",
+)
+PY
 }
 
 SOURCE=$TEST_ROOT/source/$SKILL_NAME
@@ -270,5 +299,107 @@ do
 done
 test ! -e "$ALL_PROJECT_HOME/.hermes" || fail "all:project silently used Hermes user scope"
 grep 'Hermes' "$ALL_PROJECT_LOG" >/dev/null || fail "all:project did not report Hermes unsupported"
+
+# Versioned remote installs use real release bytes served over loopback HTTP.
+python3 "$REPO/scripts/build_release.py" --tag v1.0.0
+ARCHIVE_NAME=$SKILL_NAME-v1.0.0.zip
+SERVER_ROOT=$TEST_ROOT/server
+RELEASE_DIR=$SERVER_ROOT/releases/download/v1.0.0
+mkdir -p "$RELEASE_DIR"
+cp "$REPO/dist/$ARCHIVE_NAME" "$RELEASE_DIR/$ARCHIVE_NAME"
+cp "$REPO/dist/SHA256SUMS" "$RELEASE_DIR/SHA256SUMS"
+cp "$RELEASE_DIR/$ARCHIVE_NAME" "$TEST_ROOT/original-release.zip"
+
+HTTP_PORT=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')
+python3 -m http.server "$HTTP_PORT" --bind 127.0.0.1 \
+    --directory "$SERVER_ROOT" >"$TEST_ROOT/http.log" 2>&1 &
+HTTP_PID=$!
+RELEASE_ROOT=http://127.0.0.1:$HTTP_PORT/releases/download
+attempt=0
+until curl -fsS "$RELEASE_ROOT/v1.0.0/SHA256SUMS" >/dev/null 2>&1; do
+    attempt=$((attempt + 1))
+    if [ "$attempt" -ge 50 ]; then
+        fail "loopback release server did not become ready"
+    fi
+    sleep 0.1
+done
+
+REMOTE_HOME=$TEST_ROOT/remote-home
+mkdir -p "$REMOTE_HOME"
+HOME=$REMOTE_HOME JQ2QMT_RELEASE_ROOT=$RELEASE_ROOT "$INSTALLER" \
+    --platform codex --version v1.0.0
+REMOTE_TARGET=$REMOTE_HOME/.codex/skills/$SKILL_NAME
+test -f "$REMOTE_TARGET/SKILL.md" || fail "fixed-version remote install missed SKILL.md"
+grep '^version=v1.0.0$' "$REMOTE_TARGET/.jq2qmt-install" >/dev/null || \
+    fail "fixed-version remote install marker omitted immutable tag"
+
+# A corrupt asset must fail checksum verification before creating a target root.
+printf 'corrupt release bytes\n' >>"$RELEASE_DIR/$ARCHIVE_NAME"
+CORRUPT_HOME=$TEST_ROOT/corrupt-home
+mkdir -p "$CORRUPT_HOME"
+assert_fails env HOME="$CORRUPT_HOME" JQ2QMT_RELEASE_ROOT="$RELEASE_ROOT" \
+    "$INSTALLER" --platform codex --version v1.0.0
+test ! -e "$CORRUPT_HOME/.codex" || fail "checksum failure created a target root"
+
+# A checksum-valid archive with a traversal entry is still unsafe.
+python3 - "$RELEASE_DIR/$ARCHIVE_NAME" <<'PY'
+import sys
+import zipfile
+
+with zipfile.ZipFile(sys.argv[1], "w") as archive:
+    archive.writestr("migrate-joinquant-to-qmt/../escape", "unsafe")
+PY
+write_checksum "$RELEASE_DIR/$ARCHIVE_NAME" "$RELEASE_DIR/SHA256SUMS"
+UNSAFE_PATH_HOME=$TEST_ROOT/unsafe-path-home
+mkdir -p "$UNSAFE_PATH_HOME"
+assert_fails env HOME="$UNSAFE_PATH_HOME" JQ2QMT_RELEASE_ROOT="$RELEASE_ROOT" \
+    "$INSTALLER" --platform codex --version v1.0.0
+test ! -e "$UNSAFE_PATH_HOME/.codex" || fail "unsafe archive path created a target root"
+
+# Absolute ZIP paths are independently rejected before extraction or target writes.
+python3 - "$RELEASE_DIR/$ARCHIVE_NAME" <<'PY'
+import sys
+import zipfile
+
+with zipfile.ZipFile(sys.argv[1], "w") as archive:
+    archive.writestr("/absolute-escape", "unsafe")
+PY
+write_checksum "$RELEASE_DIR/$ARCHIVE_NAME" "$RELEASE_DIR/SHA256SUMS"
+ABSOLUTE_PATH_HOME=$TEST_ROOT/absolute-path-home
+mkdir -p "$ABSOLUTE_PATH_HOME"
+assert_fails env HOME="$ABSOLUTE_PATH_HOME" JQ2QMT_RELEASE_ROOT="$RELEASE_ROOT" \
+    "$INSTALLER" --platform codex --version v1.0.0
+test ! -e "$ABSOLUTE_PATH_HOME/.codex" || fail "absolute archive path created a target root"
+
+# A checksum-valid ZIP symlink is rejected before extraction or target writes.
+python3 - "$RELEASE_DIR/$ARCHIVE_NAME" <<'PY'
+import stat
+import sys
+import zipfile
+
+with zipfile.ZipFile(sys.argv[1], "w") as archive:
+    link = zipfile.ZipInfo("migrate-joinquant-to-qmt/link")
+    link.create_system = 3
+    link.external_attr = (stat.S_IFLNK | 0o777) << 16
+    archive.writestr(link, "../../outside")
+PY
+write_checksum "$RELEASE_DIR/$ARCHIVE_NAME" "$RELEASE_DIR/SHA256SUMS"
+UNSAFE_LINK_HOME=$TEST_ROOT/unsafe-link-home
+mkdir -p "$UNSAFE_LINK_HOME"
+assert_fails env HOME="$UNSAFE_LINK_HOME" JQ2QMT_RELEASE_ROOT="$RELEASE_ROOT" \
+    "$INSTALLER" --platform codex --version v1.0.0
+test ! -e "$UNSAFE_LINK_HOME/.codex" || fail "ZIP symlink created a target root"
+
+# Latest follows a real redirect, then pins the final SemVer segment for download.
+cp "$TEST_ROOT/original-release.zip" "$RELEASE_DIR/$ARCHIVE_NAME"
+write_checksum "$RELEASE_DIR/$ARCHIVE_NAME" "$RELEASE_DIR/SHA256SUMS"
+LATEST_HOME=$TEST_ROOT/latest-home
+mkdir -p "$LATEST_HOME"
+HOME=$LATEST_HOME JQ2QMT_RELEASE_ROOT=$RELEASE_ROOT \
+    JQ2QMT_LATEST_URL=$RELEASE_ROOT/v1.0.0 "$INSTALLER" --platform codex
+LATEST_TARGET=$LATEST_HOME/.codex/skills/$SKILL_NAME
+test -f "$LATEST_TARGET/SKILL.md" || fail "latest redirect install missed SKILL.md"
+grep '^version=v1.0.0$' "$LATEST_TARGET/.jq2qmt-install" >/dev/null || \
+    fail "latest redirect did not resolve to an immutable tag"
 
 echo "POSIX installer tests passed"
