@@ -42,6 +42,24 @@ class ReleasePackageTests(unittest.TestCase):
             check=True,
         )
 
+    def test_allowed_extension_unexpected_file_is_rejected_without_artifacts(self):
+        unexpected = SKILL / "references" / "credentials.md"
+        try:
+            unexpected.write_text("secret = do-not-ship\n", encoding="utf-8")
+            result = subprocess.run(
+                [sys.executable, "scripts/build_release.py", "--tag", "v1.0.0"],
+                cwd=str(REPO),
+                capture_output=True,
+                text=True,
+            )
+        finally:
+            if unexpected.exists():
+                unexpected.unlink()
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("unexpected file", result.stderr)
+        self.assertEqual(list(DIST.iterdir()), [])
+
     def test_release_archive_has_safe_reproducible_metadata_and_checksum(self):
         self.build()
 

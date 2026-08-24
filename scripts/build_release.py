@@ -18,6 +18,20 @@ FIXED_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
 TAG_PATTERN = re.compile(r"^v[0-9]+\.[0-9]+\.[0-9]+$")
 GENERATED_NAMES = {".DS_Store", ".jq2qmt-install"}
 GENERATED_SUFFIXES = {".pyc", ".pyo"}
+CANONICAL_FILES = {
+    Path("SKILL.md"),
+    Path("agents/openai.yaml"),
+    Path("references/live-scheduling-and-execution.md"),
+    Path("references/mapping-guide.md"),
+    Path("references/market-data-and-subscriptions.md"),
+    Path("references/migration-report-template.md"),
+    Path("references/observability-and-symbols.md"),
+    Path("references/official-sources.md"),
+    Path("references/parity-checklist.md"),
+    Path("references/runtime-compatibility.md"),
+    Path("scripts/audit_jq_strategy.py"),
+    Path("scripts/check_qmt_strategy.py"),
+}
 
 
 def parse_args():
@@ -45,25 +59,10 @@ def source_files():
             or relative.suffix in GENERATED_SUFFIXES
         ):
             continue
-        if not is_canonical_file(relative):
+        if relative not in CANONICAL_FILES:
             raise ValueError("skill tree contains an unexpected file: " + str(path))
         files.append(path)
     return sorted(files, key=lambda path: path.relative_to(SKILL_DIR).as_posix())
-
-
-def is_canonical_file(relative):
-    if relative.parts == ("SKILL.md",):
-        return True
-    if len(relative.parts) != 2:
-        return False
-    section = relative.parts[0]
-    if section == "agents":
-        return relative.suffix in {".yaml", ".yml"}
-    if section == "references":
-        return relative.suffix == ".md"
-    if section == "scripts":
-        return relative.suffix in {".py", ".sh"}
-    return False
 
 
 def build_release(tag):
