@@ -9,13 +9,14 @@ description: 将聚宽（JoinQuant/JQData）量化交易策略尽可能无损地
 
 ## 先加载资源
 
-1. 始终读取 [references/mapping-guide.md](references/mapping-guide.md)。
-2. 涉及数据字段、QMT 枚举或平台行为时，读取 [references/official-sources.md](references/official-sources.md)，并重新核对相关官方页面。
-3. 开始验证前读取 [references/parity-checklist.md](references/parity-checklist.md)。
-4. 需要规范化交付说明时读取 [references/migration-report-template.md](references/migration-report-template.md)。
-5. 生成或检查日志、证券代码和标的名称时读取 [references/observability-and-symbols.md](references/observability-and-symbols.md)。
-6. 涉及实盘行情、历史下载、`subscribe`、`get_full_tick`、动态股票池或停牌判断时，读取 [references/market-data-and-subscriptions.md](references/market-data-and-subscriptions.md)。
-7. 涉及 LIVE 调度、启动/重连、`is_last_bar`、`quickTrade`、委托/成交回报或滑点统计时，读取 [references/live-scheduling-and-execution.md](references/live-scheduling-and-execution.md)。
+1. 当运行时安装、发现、调用方式或工具可用性会影响工作时，先读取 [references/runtime-compatibility.md](references/runtime-compatibility.md)。从当前运行时提供的技能根目录解析本技能的 `scripts/` 和 `references/`，而不是假定当前工作目录或专有工具名。
+2. 始终读取 [references/mapping-guide.md](references/mapping-guide.md)。
+3. 涉及数据字段、QMT 枚举或平台行为时，读取 [references/official-sources.md](references/official-sources.md)，并重新核对相关官方页面。
+4. 开始验证前读取 [references/parity-checklist.md](references/parity-checklist.md)。
+5. 需要规范化交付说明时读取 [references/migration-report-template.md](references/migration-report-template.md)。
+6. 生成或检查日志、证券代码和标的名称时读取 [references/observability-and-symbols.md](references/observability-and-symbols.md)。
+7. 涉及实盘行情、历史下载、`subscribe`、`get_full_tick`、动态股票池或停牌判断时，读取 [references/market-data-and-subscriptions.md](references/market-data-and-subscriptions.md)。
+8. 涉及 LIVE 调度、启动/重连、`is_last_bar`、`quickTrade`、委托/成交回报或滑点统计时，读取 [references/live-scheduling-and-execution.md](references/live-scheduling-and-execution.md)。
 
 ## 工作流
 
@@ -28,7 +29,7 @@ description: 将聚宽（JoinQuant/JQData）量化交易策略尽可能无损地
 
 ### 2. 静态盘点聚宽依赖
 
-对单个 Python 文件运行：
+使用当前运行时提供的命令执行能力，从本技能根目录运行：
 
 ```bash
 python3 scripts/audit_jq_strategy.py path/to/jq_strategy.py --format markdown
@@ -134,7 +135,7 @@ python3 scripts/audit_jq_strategy.py path/to/jq_strategy.py --format markdown
 至少执行：
 
 1. 聚宽源文件静态审计；
-2. QMT 文件兼容检查：
+2. 使用当前运行时提供的命令执行能力，从本技能根目录执行 QMT 文件兼容检查：
 
 ```bash
 python3 scripts/check_qmt_strategy.py path/to/qmt_strategy.py --format markdown
