@@ -16,6 +16,8 @@ SKILL_DIR = REPO / "skill" / SKILL_NAME
 DIST_DIR = REPO / "dist"
 FIXED_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
 TAG_PATTERN = re.compile(r"^v[0-9]+\.[0-9]+\.[0-9]+$")
+GENERATED_NAMES = {".DS_Store", ".jq2qmt-install"}
+GENERATED_SUFFIXES = {".pyc", ".pyo"}
 
 
 def parse_args():
@@ -36,8 +38,32 @@ def source_files():
             continue
         if not path.is_file():
             raise ValueError("skill tree contains a non-regular file: " + str(path))
+        relative = path.relative_to(SKILL_DIR)
+        if (
+            "__pycache__" in relative.parts
+            or relative.name in GENERATED_NAMES
+            or relative.suffix in GENERATED_SUFFIXES
+        ):
+            continue
+        if not is_canonical_file(relative):
+            raise ValueError("skill tree contains an unexpected file: " + str(path))
         files.append(path)
     return sorted(files, key=lambda path: path.relative_to(SKILL_DIR).as_posix())
+
+
+def is_canonical_file(relative):
+    if relative.parts == ("SKILL.md",):
+        return True
+    if len(relative.parts) != 2:
+        return False
+    section = relative.parts[0]
+    if section == "agents":
+        return relative.suffix in {".yaml", ".yml"}
+    if section == "references":
+        return relative.suffix == ".md"
+    if section == "scripts":
+        return relative.suffix in {".py", ".sh"}
+    return False
 
 
 def build_release(tag):

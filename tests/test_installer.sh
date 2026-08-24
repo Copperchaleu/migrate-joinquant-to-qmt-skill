@@ -311,8 +311,8 @@ cp "$REPO/dist/SHA256SUMS" "$RELEASE_DIR/SHA256SUMS"
 cp "$RELEASE_DIR/$ARCHIVE_NAME" "$TEST_ROOT/original-release.zip"
 
 HTTP_PORT=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')
-python3 -m http.server "$HTTP_PORT" --bind 127.0.0.1 \
-    --directory "$SERVER_ROOT" >"$TEST_ROOT/http.log" 2>&1 &
+python3 "$REPO/tests/fixtures/release_server.py" --port "$HTTP_PORT" \
+    --directory "$SERVER_ROOT" --tag v1.0.0 >"$TEST_ROOT/http.log" 2>&1 &
 HTTP_PID=$!
 RELEASE_ROOT=http://127.0.0.1:$HTTP_PORT/releases/download
 attempt=0
@@ -371,6 +371,22 @@ assert_fails env HOME="$ABSOLUTE_PATH_HOME" JQ2QMT_RELEASE_ROOT="$RELEASE_ROOT" 
     "$INSTALLER" --platform codex --version v1.0.0
 test ! -e "$ABSOLUTE_PATH_HOME/.codex" || fail "absolute archive path created a target root"
 
+# An otherwise valid release with a second top-level root is rejected.
+cp "$TEST_ROOT/original-release.zip" "$RELEASE_DIR/$ARCHIVE_NAME"
+python3 - "$RELEASE_DIR/$ARCHIVE_NAME" <<'PY'
+import sys
+import zipfile
+
+with zipfile.ZipFile(sys.argv[1], "a") as archive:
+    archive.writestr("unexpected-root/secret.txt", "must not extract")
+PY
+write_checksum "$RELEASE_DIR/$ARCHIVE_NAME" "$RELEASE_DIR/SHA256SUMS"
+UNEXPECTED_ROOT_HOME=$TEST_ROOT/unexpected-root-home
+mkdir -p "$UNEXPECTED_ROOT_HOME"
+assert_fails env HOME="$UNEXPECTED_ROOT_HOME" JQ2QMT_RELEASE_ROOT="$RELEASE_ROOT" \
+    "$INSTALLER" --platform codex --version v1.0.0
+test ! -e "$UNEXPECTED_ROOT_HOME/.codex" || fail "unexpected archive root created a target root"
+
 # A checksum-valid ZIP symlink is rejected before extraction or target writes.
 python3 - "$RELEASE_DIR/$ARCHIVE_NAME" <<'PY'
 import stat
@@ -396,10 +412,13 @@ write_checksum "$RELEASE_DIR/$ARCHIVE_NAME" "$RELEASE_DIR/SHA256SUMS"
 LATEST_HOME=$TEST_ROOT/latest-home
 mkdir -p "$LATEST_HOME"
 HOME=$LATEST_HOME JQ2QMT_RELEASE_ROOT=$RELEASE_ROOT \
-    JQ2QMT_LATEST_URL=$RELEASE_ROOT/v1.0.0 "$INSTALLER" --platform codex
+    JQ2QMT_LATEST_URL=http://127.0.0.1:$HTTP_PORT/releases/latest \
+    "$INSTALLER" --platform codex
 LATEST_TARGET=$LATEST_HOME/.codex/skills/$SKILL_NAME
 test -f "$LATEST_TARGET/SKILL.md" || fail "latest redirect install missed SKILL.md"
 grep '^version=v1.0.0$' "$LATEST_TARGET/.jq2qmt-install" >/dev/null || \
     fail "latest redirect did not resolve to an immutable tag"
+grep '"GET /releases/latest HTTP/1.1" 302 ' "$TEST_ROOT/http.log" >/dev/null || \
+    fail "latest endpoint did not emit an HTTP redirect"
 
 echo "POSIX installer tests passed"
