@@ -1,0 +1,4 @@
+interface:
+  display_name: "聚宽策略迁移到 QMT"
+  short_description: "将聚宽量化策略尽可能无损转换为可审计的 QMT 策略"
+  default_prompt: "使用 $migrate-joinquant-to-qmt 将这份聚宽策略高保真迁移为可运行、可审计的 QMT 策略。"
