@@ -23,11 +23,11 @@ sh installers/install.sh --platform codex --scope user --source skill/migrate-jo
 目标为 `<project>/.agents/skills/migrate-joinquant-to-qmt`；共享路径向量是 `.agents/skills/migrate-joinquant-to-qmt`。
 
 ```sh
-sh installers/install.sh --platform codex --scope project --project-dir /path/to/project --source skill/migrate-joinquant-to-qmt --dry-run
-sh installers/install.sh --platform codex --scope project --project-dir /path/to/project --source skill/migrate-joinquant-to-qmt
+sh installers/install.sh --platform codex --scope project --project-dir "$PROJECT_DIR" --source skill/migrate-joinquant-to-qmt --dry-run
+sh installers/install.sh --platform codex --scope project --project-dir "$PROJECT_DIR" --source skill/migrate-joinquant-to-qmt
 ```
 
-PowerShell 使用 `-Scope project -ProjectDir C:\path\to\project`。项目目录必须已存在。
+PowerShell 使用 `-Scope project -ProjectDir $env:PROJECT_DIR`。项目目录必须已存在。
 
 ## 调用
 
@@ -49,7 +49,7 @@ $migrate-joinquant-to-qmt 请审计并迁移 path/to/jq_strategy.py；先做静�
 
 ```sh
 sh installers/install.sh --platform codex --scope user --uninstall --yes
-sh installers/install.sh --platform codex --scope project --project-dir /path/to/project --uninstall --yes
+sh installers/install.sh --platform codex --scope project --project-dir "$PROJECT_DIR" --uninstall --yes
 ```
 
 PowerShell 对应 `-Platform codex -Scope user -Uninstall -Yes`。安装标记缺失时默认拒绝删除；卸载不会删除备份。

@@ -23,11 +23,11 @@ sh installers/install.sh --platform claude --scope user --source skill/migrate-j
 目标为 `<project>/.claude/skills/migrate-joinquant-to-qmt`；共享相对路径是 `.claude/skills/migrate-joinquant-to-qmt`。
 
 ```sh
-sh installers/install.sh --platform claude --scope project --project-dir /path/to/project --source skill/migrate-joinquant-to-qmt --dry-run
-sh installers/install.sh --platform claude --scope project --project-dir /path/to/project --source skill/migrate-joinquant-to-qmt
+sh installers/install.sh --platform claude --scope project --project-dir "$PROJECT_DIR" --source skill/migrate-joinquant-to-qmt --dry-run
+sh installers/install.sh --platform claude --scope project --project-dir "$PROJECT_DIR" --source skill/migrate-joinquant-to-qmt
 ```
 
-PowerShell 使用 `-Platform claude -Scope project -ProjectDir C:\path\to\project`。
+PowerShell 使用 `-Platform claude -Scope project -ProjectDir $env:PROJECT_DIR`。
 
 ## 调用
 
@@ -49,7 +49,7 @@ PowerShell 使用 `-Platform claude -Scope project -ProjectDir C:\path\to\projec
 
 ```sh
 sh installers/install.sh --platform claude --scope user --uninstall --yes
-sh installers/install.sh --platform claude --scope project --project-dir /path/to/project --uninstall --yes
+sh installers/install.sh --platform claude --scope project --project-dir "$PROJECT_DIR" --uninstall --yes
 ```
 
 PowerShell 对应 `-Platform claude -Uninstall -Yes`，项目级同时传 `-Scope project -ProjectDir`。

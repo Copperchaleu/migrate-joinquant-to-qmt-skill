@@ -53,10 +53,21 @@ If the target already exists with different content, the installer refuses to ov
 
 From a repository root or extracted Release, these three POSIX commands form the executable, tested user-scope lifecycle. `REPO_ROOT` is the absolute repository path; the documentation test runs dry-run, install, and uninstall against an isolated `HOME`.
 
+Note: the Release zip contains only `migrate-joinquant-to-qmt/` and does not include repository `installers/`. If you only have an extracted Release, use repository installers with `--source "$RELEASE_ROOT/migrate-joinquant-to-qmt"`, or use the pinned remote installer in the next section.
+
 ```sh local-lifecycle
 sh "$REPO_ROOT/installers/install.sh" --platform codex --scope user --source "$REPO_ROOT/skill/migrate-joinquant-to-qmt" --dry-run
 sh "$REPO_ROOT/installers/install.sh" --platform codex --scope user --source "$REPO_ROOT/skill/migrate-joinquant-to-qmt"
 sh "$REPO_ROOT/installers/install.sh" --platform codex --scope user --uninstall --yes
+```
+
+When you only have the extracted Release artifact, the source path is `migrate-joinquant-to-qmt/`:
+
+```sh release-root-lifecycle
+RELEASE_ROOT=/path/to/releasedir
+sh "$REPO_ROOT/installers/install.sh" --platform codex --scope user --source "$RELEASE_ROOT/migrate-joinquant-to-qmt" --dry-run
+sh "$REPO_ROOT/installers/install.sh" --platform codex --scope user --source "$RELEASE_ROOT/migrate-joinquant-to-qmt"
+sh "$REPO_ROOT/installers/install.sh" --platform codex --scope user --source "$RELEASE_ROOT/migrate-joinquant-to-qmt" --uninstall --yes
 ```
 
 These PowerShell commands exercise the tested project-scope path; `PROJECT_DIR` must name an existing project directory.

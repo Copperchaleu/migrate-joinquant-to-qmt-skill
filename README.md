@@ -53,10 +53,21 @@ Set-Location migrate-joinquant-to-qmt-skill
 
 在仓库或已解压 Release 根目录内，下面三条 POSIX 命令构成经过自动测试的本地用户级生命周期。`REPO_ROOT` 是仓库绝对路径；测试会在隔离的 `HOME` 下真实执行 dry-run、安装和卸载。
 
+注意：Release zip 仅包含 `migrate-joinquant-to-qmt/`，不包含仓库中的 `installers/`。若你只拿到已解压 Release，安装时请先准备本仓库的 `installers/`（或改用下一段的固定远程安装脚本）。
+
 ```sh local-lifecycle
 sh "$REPO_ROOT/installers/install.sh" --platform codex --scope user --source "$REPO_ROOT/skill/migrate-joinquant-to-qmt" --dry-run
 sh "$REPO_ROOT/installers/install.sh" --platform codex --scope user --source "$REPO_ROOT/skill/migrate-joinquant-to-qmt"
 sh "$REPO_ROOT/installers/install.sh" --platform codex --scope user --uninstall --yes
+```
+
+若你手上只有 Release zip，解包后目标路径是 `migrate-joinquant-to-qmt/`，可直接把该路径作为 `--source`（前提是你使用本仓库的安装脚本执行）：
+
+```sh release-root-lifecycle
+RELEASE_ROOT=/path/to/releasedir
+sh "$REPO_ROOT/installers/install.sh" --platform codex --scope user --source "$RELEASE_ROOT/migrate-joinquant-to-qmt" --dry-run
+sh "$REPO_ROOT/installers/install.sh" --platform codex --scope user --source "$RELEASE_ROOT/migrate-joinquant-to-qmt"
+sh "$REPO_ROOT/installers/install.sh" --platform codex --scope user --source "$RELEASE_ROOT/migrate-joinquant-to-qmt" --uninstall --yes
 ```
 
 下面三条 PowerShell 命令测试项目级路径；`PROJECT_DIR` 必须是已存在的项目目录。

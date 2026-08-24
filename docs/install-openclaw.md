@@ -23,11 +23,11 @@ sh installers/install.sh --platform openclaw --scope user --source skill/migrate
 OpenClaw 项目级目标是 `<workspace>/skills/migrate-joinquant-to-qmt`；共享相对路径是 `skills/migrate-joinquant-to-qmt`。
 
 ```sh
-sh installers/install.sh --platform openclaw --scope project --project-dir /path/to/workspace --source skill/migrate-joinquant-to-qmt --dry-run
-sh installers/install.sh --platform openclaw --scope project --project-dir /path/to/workspace --source skill/migrate-joinquant-to-qmt
+sh installers/install.sh --platform openclaw --scope project --project-dir "$PROJECT_DIR" --source skill/migrate-joinquant-to-qmt --dry-run
+sh installers/install.sh --platform openclaw --scope project --project-dir "$PROJECT_DIR" --source skill/migrate-joinquant-to-qmt
 ```
 
-PowerShell 使用 `-Platform openclaw -Scope project -ProjectDir C:\path\to\workspace`。
+PowerShell 使用 `-Platform openclaw -Scope project -ProjectDir $env:PROJECT_DIR`。
 
 ## 调用
 
@@ -49,7 +49,7 @@ PowerShell 使用 `-Platform openclaw -Scope project -ProjectDir C:\path\to\work
 
 ```sh
 sh installers/install.sh --platform openclaw --scope user --uninstall --yes
-sh installers/install.sh --platform openclaw --scope project --project-dir /path/to/workspace --uninstall --yes
+sh installers/install.sh --platform openclaw --scope project --project-dir "$PROJECT_DIR" --uninstall --yes
 ```
 
 PowerShell 对应 `-Platform openclaw -Uninstall -Yes`，项目级同时传 workspace 路径。

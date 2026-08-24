@@ -23,11 +23,11 @@ sh installers/install.sh --platform opencode --scope user --source skill/migrate
 目标为 `<project>/.opencode/skills/migrate-joinquant-to-qmt`；共享相对路径是 `.opencode/skills/migrate-joinquant-to-qmt`。
 
 ```sh
-sh installers/install.sh --platform opencode --scope project --project-dir /path/to/project --source skill/migrate-joinquant-to-qmt --dry-run
-sh installers/install.sh --platform opencode --scope project --project-dir /path/to/project --source skill/migrate-joinquant-to-qmt
+sh installers/install.sh --platform opencode --scope project --project-dir "$PROJECT_DIR" --source skill/migrate-joinquant-to-qmt --dry-run
+sh installers/install.sh --platform opencode --scope project --project-dir "$PROJECT_DIR" --source skill/migrate-joinquant-to-qmt
 ```
 
-PowerShell 使用 `-Platform opencode -Scope project -ProjectDir C:\path\to\project`。
+PowerShell 使用 `-Platform opencode -Scope project -ProjectDir $env:PROJECT_DIR`。
 
 ## 调用
 
@@ -49,7 +49,7 @@ PowerShell 使用 `-Platform opencode -Scope project -ProjectDir C:\path\to\proj
 
 ```sh
 sh installers/install.sh --platform opencode --scope user --uninstall --yes
-sh installers/install.sh --platform opencode --scope project --project-dir /path/to/project --uninstall --yes
+sh installers/install.sh --platform opencode --scope project --project-dir "$PROJECT_DIR" --uninstall --yes
 ```
 
 PowerShell 对应 `-Platform opencode -Uninstall -Yes`，项目级还需 `-Scope project -ProjectDir`。
