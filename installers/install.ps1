@@ -1,8 +1,6 @@
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
-    [ValidateSet('codex','claude','opencode','openclaw','hermes','all')]
     [string]$Platform,
-    [ValidateSet('user','project')]
     [string]$Scope = 'user',
     [string]$ProjectDir = (Get-Location).Path,
     [string]$Version,
@@ -20,6 +18,7 @@ $ReleaseRoot = if ($env:JQ2QMT_RELEASE_ROOT) { $env:JQ2QMT_RELEASE_ROOT.TrimEnd(
 $LatestUrl = if ($env:JQ2QMT_LATEST_URL) { $env:JQ2QMT_LATEST_URL } else { "https://github.com/$Repository/releases/latest" }
 $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 $TemporaryDirectory = $null
+$InstallerCmdlet = $PSCmdlet
 
 function Throw-InstallerError {
     param([string]$Message, [int]$ExitCode = 1)
@@ -225,6 +224,10 @@ function Install-LocalSkill {
         Write-Output "dry-run: source=$SourcePath version=$markerVersion platform=$SelectedPlatform scope=$SelectedScope target=$($TargetInfo.Target) action=$plannedAction hash=$sourceHash"
         return
     }
+    $shouldProcessAction = if ($targetExists) { 'Back up existing skill and install replacement' } else { 'Install skill' }
+    if (-not $InstallerCmdlet.ShouldProcess($TargetInfo.Target, $shouldProcessAction)) {
+        return
+    }
 
     Assert-ExactTarget $TargetInfo
     New-Item -ItemType Directory -Path $TargetInfo.Root -Force | Out-Null
@@ -299,6 +302,9 @@ function Remove-InstalledSkill {
     }
     if ($DryRun) {
         Write-Output "dry-run: platform=$SelectedPlatform scope=$SelectedScope target=$($TargetInfo.Target) action=uninstall"
+        return
+    }
+    if (-not $InstallerCmdlet.ShouldProcess($TargetInfo.Target, 'Uninstall skill')) {
         return
     }
     if (-not $Yes) {
@@ -476,9 +482,59 @@ function Get-DetectedPlatforms {
 }
 
 function Invoke-InstallerMain {
+    $selectedScope = if ($null -eq $Scope) { '' } else { $Scope.ToLowerInvariant() }
+    if (@('user', 'project') -notcontains $selectedScope) {
+        Throw-InstallerError "unsupported scope: $Scope" 64
+    }
+    $requestedPlatform = if ($null -eq $Platform) { '' } else { $Platform.ToLowerInvariant() }
+    if ($requestedPlatform -and @('codex', 'claude', 'opencode', 'openclaw', 'hermes', 'all') -notcontains $requestedPlatform) {
+        Throw-InstallerError "unsupported platform: $Platform" 64
+    }
+
     $resolvedProject = Get-FullPath $ProjectDir
     if (-not (Test-Path -LiteralPath $resolvedProject -PathType Container)) {
         Throw-InstallerError "project directory does not exist: $ProjectDir" 64
+    }
+
+    $selectedPlatforms = @()
+    if (-not $requestedPlatform) {
+        $detected = @(Get-DetectedPlatforms)
+        if ($detected.Count -ne 1) {
+            Throw-InstallerError "detected $($detected.Count) supported platform CLIs; specify -Platform explicitly"
+        }
+        $selectedPlatforms = $detected
+    }
+    elseif ($requestedPlatform -eq 'all') {
+        $selectedPlatforms = @(Get-DetectedPlatforms)
+        if ($selectedPlatforms.Count -eq 0) {
+            Throw-InstallerError '-Platform all found no supported platform CLI'
+        }
+    }
+    else {
+        $selectedPlatforms = @($requestedPlatform)
+    }
+
+    if (-not $Uninstall -and -not $Source -and $WhatIfPreference) {
+        $plannedTargets = 0
+        foreach ($selectedPlatform in $selectedPlatforms) {
+            try {
+                $targetInfo = Resolve-Target $selectedPlatform $selectedScope $resolvedProject
+                [void]$InstallerCmdlet.ShouldProcess($targetInfo.Target, 'Install verified release')
+                $plannedTargets++
+            }
+            catch {
+                $code = if ($_.Exception.Data.Contains('ExitCode')) { [int]$_.Exception.Data['ExitCode'] } else { 1 }
+                if ($requestedPlatform -eq 'all' -and $selectedPlatform -eq 'hermes' -and $selectedScope -eq 'project' -and $code -eq 2) {
+                    [Console]::Error.WriteLine("Error: $($_.Exception.Message)")
+                    continue
+                }
+                throw
+            }
+        }
+        if ($plannedTargets -eq 0) {
+            Throw-InstallerError 'no supported installation target succeeded'
+        }
+        return
     }
 
     $sourcePath = $null
@@ -504,39 +560,21 @@ function Invoke-InstallerMain {
         }
     }
 
-    $selectedPlatforms = @()
-    if (-not $Platform) {
-        $detected = @(Get-DetectedPlatforms)
-        if ($detected.Count -ne 1) {
-            Throw-InstallerError "detected $($detected.Count) supported platform CLIs; specify -Platform explicitly"
-        }
-        $selectedPlatforms = $detected
-    }
-    elseif ($Platform -eq 'all') {
-        $selectedPlatforms = @(Get-DetectedPlatforms)
-        if ($selectedPlatforms.Count -eq 0) {
-            Throw-InstallerError '-Platform all found no supported platform CLI'
-        }
-    }
-    else {
-        $selectedPlatforms = @($Platform)
-    }
-
     $successfulTargets = 0
     foreach ($selectedPlatform in $selectedPlatforms) {
         try {
-            $targetInfo = Resolve-Target $selectedPlatform $Scope $resolvedProject
+            $targetInfo = Resolve-Target $selectedPlatform $selectedScope $resolvedProject
             if ($Uninstall) {
-                Remove-InstalledSkill $targetInfo $selectedPlatform $Scope
+                Remove-InstalledSkill $targetInfo $selectedPlatform $selectedScope
             }
             else {
-                Install-LocalSkill $sourcePath $targetInfo $selectedPlatform $Scope $resolvedVersion $sourceDescription
+                Install-LocalSkill $sourcePath $targetInfo $selectedPlatform $selectedScope $resolvedVersion $sourceDescription
             }
             $successfulTargets++
         }
         catch {
             $code = if ($_.Exception.Data.Contains('ExitCode')) { [int]$_.Exception.Data['ExitCode'] } else { 1 }
-            if ($Platform -eq 'all' -and $selectedPlatform -eq 'hermes' -and $Scope -eq 'project' -and $code -eq 2) {
+            if ($requestedPlatform -eq 'all' -and $selectedPlatform -eq 'hermes' -and $selectedScope -eq 'project' -and $code -eq 2) {
                 [Console]::Error.WriteLine("Error: $($_.Exception.Message)")
                 continue
             }

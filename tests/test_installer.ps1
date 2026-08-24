@@ -71,6 +71,29 @@ try {
     Copy-Item -LiteralPath (Join-Path $Repo ('skill/' + $SkillName)) -Destination $Source -Recurse
     $Source = [System.IO.Path]::GetFullPath($Source)
 
+    # Invalid platform and scope values are usage errors and must not write targets.
+    $invalidRoot = Join-Path $TestRoot 'invalid-options'
+    $invalidHome = Join-Path $invalidRoot 'home'
+    $invalidProject = Join-Path $invalidRoot 'project'
+    $validationRuntimeHome = Join-Path $TestRoot 'validation-runtime-home'
+    New-Item -ItemType Directory -Path $invalidHome, $invalidProject, $validationRuntimeHome | Out-Null
+    $invalidBefore = Get-TreeSnapshot $invalidRoot
+    $invalidPlatform = Invoke-Installer -InstallerArguments @(
+        '-Platform', 'unsupported', '-Scope', 'user',
+        '-ProjectDir', $invalidProject, '-Source', $Source
+    ) -Environment @{ HOME = $validationRuntimeHome; USERPROFILE = $invalidHome }
+    Assert-True ($invalidPlatform.ExitCode -eq 64) "invalid Platform returned $($invalidPlatform.ExitCode) instead of 64"
+    Assert-True ($invalidPlatform.Output -match 'platform|Platform') 'invalid Platform failure was not actionable'
+    Assert-True ($invalidBefore -ceq (Get-TreeSnapshot $invalidRoot)) 'invalid Platform wrote to the filesystem'
+
+    $invalidScope = Invoke-Installer -InstallerArguments @(
+        '-Platform', 'codex', '-Scope', 'machine',
+        '-ProjectDir', $invalidProject, '-Source', $Source
+    ) -Environment @{ HOME = $validationRuntimeHome; USERPROFILE = $invalidHome }
+    Assert-True ($invalidScope.ExitCode -eq 64) "invalid Scope returned $($invalidScope.ExitCode) instead of 64"
+    Assert-True ($invalidScope.Output -match 'scope|Scope') 'invalid Scope failure was not actionable'
+    Assert-True ($invalidBefore -ceq (Get-TreeSnapshot $invalidRoot)) 'invalid Scope wrote to the filesystem'
+
     # A wrong target mapping or an omitted marker breaks a literal shared vector.
     $mappingHome = Join-Path $TestRoot 'mapping-home'
     $mappingProject = Join-Path $TestRoot 'mapping-project'
@@ -118,6 +141,68 @@ try {
     $after = Get-TreeSnapshot $dryRoot
     Assert-True ($dry.ExitCode -eq 0) "dry-run failed: $($dry.Output)"
     Assert-True ($before -ceq $after) 'dry-run wrote to the filesystem'
+
+    # WhatIf reports the exact install target and never reaches mutating cmdlets.
+    $whatIfInstallRoot = Join-Path $TestRoot 'whatif-install'
+    $whatIfInstallHome = Join-Path $whatIfInstallRoot 'home'
+    $whatIfInstallProject = Join-Path $whatIfInstallRoot 'project'
+    New-Item -ItemType Directory -Path $whatIfInstallHome, $whatIfInstallProject | Out-Null
+    $whatIfInstallTarget = Join-Path $whatIfInstallHome ('.codex/skills/' + $SkillName)
+    $whatIfInstallBefore = Get-TreeSnapshot $whatIfInstallRoot
+    $whatIfInstall = Invoke-Installer -InstallerArguments @(
+        '-Platform', 'codex', '-Scope', 'user', '-ProjectDir', $whatIfInstallProject,
+        '-Source', $Source, '-WhatIf'
+    ) -Environment @{ HOME = $runtimeHome; USERPROFILE = $whatIfInstallHome }
+    Assert-True ($whatIfInstall.ExitCode -eq 0) "install WhatIf failed: $($whatIfInstall.Output)"
+    Assert-True ($whatIfInstallBefore -ceq (Get-TreeSnapshot $whatIfInstallRoot)) 'install WhatIf wrote to the filesystem'
+    Assert-True ($whatIfInstall.Output -match [regex]::Escape($whatIfInstallTarget)) 'install WhatIf output omitted the exact target'
+    Assert-True ($whatIfInstall.Output -match 'install') 'install WhatIf output omitted the planned action'
+    Assert-True ($whatIfInstall.Output -notmatch 'Create Directory|Copy Directory|Copy File') 'install WhatIf reached nested mutating cmdlets'
+
+    # Default remote WhatIf resolves only the target; it performs no download or temp write.
+    $whatIfRemoteRoot = Join-Path $TestRoot 'whatif-remote'
+    $whatIfRemoteHome = Join-Path $whatIfRemoteRoot 'home'
+    $whatIfRemoteProject = Join-Path $whatIfRemoteRoot 'project'
+    New-Item -ItemType Directory -Path $whatIfRemoteHome, $whatIfRemoteProject | Out-Null
+    $whatIfRemoteTarget = Join-Path $whatIfRemoteHome ('.codex/skills/' + $SkillName)
+    $whatIfRemoteBefore = Get-TreeSnapshot $whatIfRemoteRoot
+    $whatIfRemote = Invoke-Installer -InstallerArguments @(
+        '-Platform', 'codex', '-Scope', 'user', '-ProjectDir', $whatIfRemoteProject,
+        '-WhatIf'
+    ) -Environment @{
+        HOME = $runtimeHome; USERPROFILE = $whatIfRemoteHome;
+        JQ2QMT_RELEASE_ROOT = 'http://127.0.0.1:1/releases/download';
+        JQ2QMT_LATEST_URL = 'http://127.0.0.1:1/releases/latest'
+    }
+    Assert-True ($whatIfRemote.ExitCode -eq 0) "remote install WhatIf attempted release access: $($whatIfRemote.Output)"
+    Assert-True ($whatIfRemoteBefore -ceq (Get-TreeSnapshot $whatIfRemoteRoot)) 'remote install WhatIf wrote to the filesystem'
+    Assert-True ($whatIfRemote.Output -match [regex]::Escape($whatIfRemoteTarget)) 'remote install WhatIf output omitted the exact target'
+    Assert-True ($whatIfRemote.Output -match 'install') 'remote install WhatIf output omitted the planned action'
+
+    # Uninstall WhatIf needs no confirmation and leaves the managed tree byte-for-byte intact.
+    $whatIfUninstallRoot = Join-Path $TestRoot 'whatif-uninstall'
+    $whatIfUninstallHome = Join-Path $whatIfUninstallRoot 'home'
+    $whatIfUninstallProject = Join-Path $whatIfUninstallRoot 'project'
+    New-Item -ItemType Directory -Path $whatIfUninstallHome, $whatIfUninstallProject | Out-Null
+    $whatIfUninstallTarget = Join-Path $whatIfUninstallHome ('.codex/skills/' + $SkillName)
+    $whatIfSetup = Invoke-Installer -InstallerArguments @(
+        '-Platform', 'codex', '-Scope', 'user', '-ProjectDir', $whatIfUninstallProject,
+        '-Source', $Source
+    ) -Environment @{ HOME = $runtimeHome; USERPROFILE = $whatIfUninstallHome }
+    Assert-True ($whatIfSetup.ExitCode -eq 0) "could not prepare uninstall WhatIf target: $($whatIfSetup.Output)"
+    $whatIfUninstallBefore = Get-TreeSnapshot $whatIfUninstallRoot
+    $whatIfMarker = Join-Path $whatIfUninstallTarget '.jq2qmt-install'
+    $whatIfMarkerHashBefore = (Get-FileHash -LiteralPath $whatIfMarker -Algorithm SHA256).Hash
+    $whatIfUninstall = Invoke-Installer -InstallerArguments @(
+        '-Platform', 'codex', '-Scope', 'user', '-ProjectDir', $whatIfUninstallProject,
+        '-Uninstall', '-WhatIf'
+    ) -Environment @{ HOME = $runtimeHome; USERPROFILE = $whatIfUninstallHome }
+    Assert-True ($whatIfUninstall.ExitCode -eq 0) "uninstall WhatIf failed: $($whatIfUninstall.Output)"
+    Assert-True ($whatIfUninstallBefore -ceq (Get-TreeSnapshot $whatIfUninstallRoot)) 'uninstall WhatIf changed the filesystem tree'
+    Assert-True ($whatIfMarkerHashBefore -ceq (Get-FileHash -LiteralPath $whatIfMarker -Algorithm SHA256).Hash) 'uninstall WhatIf rewrote installed content'
+    Assert-True ($whatIfUninstall.Output -match [regex]::Escape($whatIfUninstallTarget)) 'uninstall WhatIf output omitted the exact target'
+    Assert-True ($whatIfUninstall.Output -match 'uninstall|remove') 'uninstall WhatIf output omitted the planned action'
+    Assert-True ($whatIfUninstall.Output -notmatch 'Remove Directory|Remove File') 'uninstall WhatIf reached nested mutating cmdlets'
 
     # Same content is a no-op; changed content is refused; Force makes one backup.
     $lifeHome = Join-Path $TestRoot 'lifecycle-home'
