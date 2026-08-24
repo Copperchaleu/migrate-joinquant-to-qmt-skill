@@ -3,6 +3,7 @@ set -eu
 
 REPO=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd -P)
 INSTALLER=$REPO/installers/install.sh
+PLATFORM_PATHS=$REPO/tests/platform-paths.json
 SKILL_NAME=migrate-joinquant-to-qmt
 TEST_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/jq2qmt-test.XXXXXX")
 HTTP_PID=
@@ -75,22 +76,21 @@ SOURCE=$(CDPATH= cd -- "$SOURCE" && pwd -P)
 MAPPING_HOME=$TEST_ROOT/mapping-home
 MAPPING_PROJECT=$TEST_ROOT/mapping-project
 mkdir -p "$MAPPING_HOME" "$MAPPING_PROJECT"
-while IFS='|' read -r platform scope expected; do
+path_vectors=$(python3 -c 'import json, sys; [print("\t".join((v["platform"], v["scope"], v["relative"]))) for v in json.load(open(sys.argv[1], encoding="utf-8"))]' "$PLATFORM_PATHS")
+tab=$(printf '\t')
+while IFS="$tab" read -r platform scope relative; do
+    case "$scope" in
+        user) expected=$MAPPING_HOME/$relative ;;
+        project) expected=$MAPPING_PROJECT/$relative ;;
+        *) fail "unknown shared-vector scope: $scope" ;;
+    esac
     HOME=$MAPPING_HOME "$INSTALLER" \
         --platform "$platform" --scope "$scope" \
         --project-dir "$MAPPING_PROJECT" --source "$SOURCE"
     test -f "$expected/SKILL.md" || fail "missing SKILL.md for $platform:$scope"
     test -f "$expected/.jq2qmt-install" || fail "missing marker for $platform:$scope"
 done <<EOF
-codex|user|$MAPPING_HOME/.codex/skills/$SKILL_NAME
-claude|user|$MAPPING_HOME/.claude/skills/$SKILL_NAME
-opencode|user|$MAPPING_HOME/.config/opencode/skills/$SKILL_NAME
-openclaw|user|$MAPPING_HOME/.openclaw/skills/$SKILL_NAME
-hermes|user|$MAPPING_HOME/.hermes/skills/$SKILL_NAME
-codex|project|$MAPPING_PROJECT/.agents/skills/$SKILL_NAME
-claude|project|$MAPPING_PROJECT/.claude/skills/$SKILL_NAME
-opencode|project|$MAPPING_PROJECT/.opencode/skills/$SKILL_NAME
-openclaw|project|$MAPPING_PROJECT/skills/$SKILL_NAME
+$path_vectors
 EOF
 
 # Hermes project scope must fail rather than silently installing elsewhere.
@@ -421,4 +421,5 @@ grep '^version=v1.0.0$' "$LATEST_TARGET/.jq2qmt-install" >/dev/null || \
 grep '"GET /releases/latest HTTP/1.1" 302 ' "$TEST_ROOT/http.log" >/dev/null || \
     fail "latest endpoint did not emit an HTTP redirect"
 
-echo "POSIX installer tests passed"
+vector_count=$(printf '%s\n' "$path_vectors" | awk 'NF { count += 1 } END { print count + 0 }')
+echo "POSIX installer tests passed (shared path vectors: $vector_count)"

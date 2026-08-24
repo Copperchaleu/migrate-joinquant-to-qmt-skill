@@ -1,0 +1,11 @@
+[
+  {"platform":"codex","scope":"user","relative":".codex/skills/migrate-joinquant-to-qmt"},
+  {"platform":"claude","scope":"user","relative":".claude/skills/migrate-joinquant-to-qmt"},
+  {"platform":"opencode","scope":"user","relative":".config/opencode/skills/migrate-joinquant-to-qmt"},
+  {"platform":"openclaw","scope":"user","relative":".openclaw/skills/migrate-joinquant-to-qmt"},
+  {"platform":"hermes","scope":"user","relative":".hermes/skills/migrate-joinquant-to-qmt"},
+  {"platform":"codex","scope":"project","relative":".agents/skills/migrate-joinquant-to-qmt"},
+  {"platform":"claude","scope":"project","relative":".claude/skills/migrate-joinquant-to-qmt"},
+  {"platform":"opencode","scope":"project","relative":".opencode/skills/migrate-joinquant-to-qmt"},
+  {"platform":"openclaw","scope":"project","relative":"skills/migrate-joinquant-to-qmt"}
+]
