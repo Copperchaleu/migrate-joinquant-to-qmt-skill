@@ -179,6 +179,20 @@ try {
     Assert-True ($whatIfRemote.Output -match [regex]::Escape($whatIfRemoteTarget)) 'remote install WhatIf output omitted the exact target'
     Assert-True ($whatIfRemote.Output -match 'install') 'remote install WhatIf output omitted the planned action'
 
+    # Invalid fixed versions remain usage errors under WhatIf and never access releases.
+    $invalidVersionWhatIfBefore = Get-TreeSnapshot $whatIfRemoteRoot
+    $invalidVersionWhatIf = Invoke-Installer -InstallerArguments @(
+        '-Platform', 'codex', '-Scope', 'user', '-ProjectDir', $whatIfRemoteProject,
+        '-Version', 'definitely-invalid', '-WhatIf'
+    ) -Environment @{
+        HOME = $runtimeHome; USERPROFILE = $whatIfRemoteHome;
+        JQ2QMT_RELEASE_ROOT = 'http://127.0.0.1:1/releases/download';
+        JQ2QMT_LATEST_URL = 'http://127.0.0.1:1/releases/latest'
+    }
+    Assert-True ($invalidVersionWhatIf.ExitCode -eq 64) "invalid Version WhatIf returned $($invalidVersionWhatIf.ExitCode) instead of 64"
+    Assert-True ($invalidVersionWhatIf.Output -match 'version|Version') 'invalid Version WhatIf failure was not actionable'
+    Assert-True ($invalidVersionWhatIfBefore -ceq (Get-TreeSnapshot $whatIfRemoteRoot)) 'invalid Version WhatIf wrote to the filesystem'
+
     # Uninstall WhatIf needs no confirmation and leaves the managed tree byte-for-byte intact.
     $whatIfUninstallRoot = Join-Path $TestRoot 'whatif-uninstall'
     $whatIfUninstallHome = Join-Path $whatIfUninstallRoot 'home'

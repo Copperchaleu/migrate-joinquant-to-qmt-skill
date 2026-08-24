@@ -490,6 +490,9 @@ function Invoke-InstallerMain {
     if ($requestedPlatform -and @('codex', 'claude', 'opencode', 'openclaw', 'hermes', 'all') -notcontains $requestedPlatform) {
         Throw-InstallerError "unsupported platform: $Platform" 64
     }
+    if (-not $Uninstall -and -not $Source -and $Version -and -not (Test-ReleaseTag $Version)) {
+        Throw-InstallerError '-Version must match vMAJOR.MINOR.PATCH' 64
+    }
 
     $resolvedProject = Get-FullPath $ProjectDir
     if (-not (Test-Path -LiteralPath $resolvedProject -PathType Container)) {
