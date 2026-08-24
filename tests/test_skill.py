@@ -49,18 +49,27 @@ class SkillPackageTests(unittest.TestCase):
             "freshness_missing_depth.py": {"live-bar-depth"},
         }
         for filename, expected in expectations.items():
-            findings = checker.check(FIXTURES / filename)["findings"]
+            report = checker.check(FIXTURES / filename)
+            findings = report["findings"]
             symbols = {item["symbol"] for item in findings}
             self.assertTrue(expected.issubset(symbols), (filename, findings))
             if filename == "freshness_good.py":
-                self.assertNotIn("live-bar-window", symbols)
-                self.assertNotIn("live-bar-depth", symbols)
+                errors = [
+                    item for item in findings if item["severity"] == "error"
+                ]
+                self.assertEqual([], errors, report)
 
     def test_name_and_log_fail_closed(self):
         checker = load_checker()
         unknown = checker.check(FIXTURES / "bad_unknown_name.py")["findings"]
+        code_fallback = checker.check(
+            FIXTURES / "bad_code_as_name.py"
+        )["findings"]
         bad_log = checker.check(FIXTURES / "bad_log_time.py")["findings"]
         self.assertIn("instrument-name", {item["symbol"] for item in unknown})
+        self.assertIn(
+            "instrument-name", {item["symbol"] for item in code_fallback}
+        )
         self.assertIn("print", {item["symbol"] for item in bad_log})
 
 

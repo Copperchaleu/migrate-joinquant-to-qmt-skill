@@ -26,7 +26,7 @@ def qmt_log(C, level, message):
 
 
 def qmt_instrument_name(C, code):
-    return C.get_instrument_detail(code)["InstrumentName"]
+    return C.get_instrument_detail(code).get("InstrumentName", code)
 
 
 def qmt_live_bar_fresh(C):

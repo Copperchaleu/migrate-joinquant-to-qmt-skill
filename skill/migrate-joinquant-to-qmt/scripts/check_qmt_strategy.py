@@ -984,6 +984,50 @@ def check(path):
                 ),
             })
 
+    instrument_name_node = next(
+        (item for item in visitor.function_nodes
+         if item.name == "qmt_instrument_name"), None
+    )
+    if instrument_name_node is not None:
+        code_fallback = False
+        for item in ast.walk(instrument_name_node):
+            if not isinstance(item, ast.Return):
+                continue
+            value = item.value
+            if isinstance(value, ast.Name) and value.id == "code":
+                code_fallback = True
+            elif isinstance(value, ast.BoolOp) and isinstance(value.op, ast.Or):
+                code_fallback = any(
+                    isinstance(part, ast.Name) and part.id == "code"
+                    for part in value.values[1:]
+                )
+            elif isinstance(value, ast.IfExp):
+                code_fallback = (
+                    isinstance(value.orelse, ast.Name)
+                    and value.orelse.id == "code"
+                )
+            elif (
+                    isinstance(value, ast.Call)
+                    and isinstance(value.func, ast.Attribute)
+                    and value.func.attr == "get"
+                    and value.args
+                    and literal_value(value.args[0]) == "InstrumentName"
+                    and len(value.args) > 1
+                    and isinstance(value.args[1], ast.Name)
+                    and value.args[1].id == "code"):
+                code_fallback = True
+            if code_fallback:
+                findings.append({
+                    "severity": "error",
+                    "line": item.lineno,
+                    "symbol": "instrument-name",
+                    "message": (
+                        "名称查询失败时不得静默回退为证券代码；"
+                        "应记录接口返回或异常并修复根因。"
+                    ),
+                })
+                break
+
     for match in NON_QMT_CODE_PATTERN.finditer(source):
         findings.append({
             "severity": "error",
