@@ -86,6 +86,50 @@ HOME=$DRY_HOME TMPDIR=$DRY_ROOT "$INSTALLER" --platform codex \
 after=$(find "$DRY_ROOT" -print | LC_ALL=C sort)
 test "$before" = "$after" || fail "dry-run wrote to the filesystem"
 
+# Dry-run must succeed without initializing an unusable temp or target context.
+LOCKED_DRY_ROOT=$TEST_ROOT/locked-dry-run
+LOCKED_DRY_HOME=$LOCKED_DRY_ROOT/home
+LOCKED_DRY_PROJECT=$LOCKED_DRY_ROOT/project
+MISSING_TMPDIR=$LOCKED_DRY_ROOT/does-not-exist
+mkdir -p "$LOCKED_DRY_HOME" "$LOCKED_DRY_PROJECT"
+chmod 500 "$LOCKED_DRY_HOME" "$LOCKED_DRY_PROJECT"
+HOME=$LOCKED_DRY_HOME TMPDIR=$MISSING_TMPDIR "$INSTALLER" --platform codex \
+    --project-dir "$LOCKED_DRY_PROJECT" --source "$SOURCE" --dry-run
+chmod 700 "$LOCKED_DRY_HOME" "$LOCKED_DRY_PROJECT"
+test ! -e "$MISSING_TMPDIR" || fail "dry-run initialized nonexistent TMPDIR"
+test ! -e "$LOCKED_DRY_HOME/.codex" || fail "dry-run wrote under protected HOME"
+
+# A per-file hash failure must abort before any target is created.
+HASH_FAIL_BIN=$TEST_ROOT/hash-fail-bin
+HASH_FAIL_HOME=$TEST_ROOT/hash-fail-home
+HASH_FAIL_PROJECT=$TEST_ROOT/hash-fail-project
+mkdir -p "$HASH_FAIL_BIN" "$HASH_FAIL_HOME" "$HASH_FAIL_PROJECT"
+if command -v sha256sum >/dev/null 2>&1; then
+    REAL_HASH_COMMAND=$(command -v sha256sum)
+    REAL_HASH_MODE=sha256sum
+else
+    REAL_HASH_COMMAND=$(command -v shasum)
+    REAL_HASH_MODE=shasum
+fi
+printf '%s\n' \
+    '#!/bin/sh' \
+    'if [ "$#" -gt 0 ]; then exit 73; fi' \
+    'if [ "$JQ2QMT_REAL_HASH_MODE" = sha256sum ]; then' \
+    '    exec "$JQ2QMT_REAL_HASH_COMMAND"' \
+    'fi' \
+    'exec "$JQ2QMT_REAL_HASH_COMMAND" -a 256' \
+    >"$HASH_FAIL_BIN/sha256sum"
+chmod +x "$HASH_FAIL_BIN/sha256sum"
+if HOME=$HASH_FAIL_HOME PATH="$HASH_FAIL_BIN:/usr/bin:/bin" \
+    JQ2QMT_REAL_HASH_COMMAND=$REAL_HASH_COMMAND \
+    JQ2QMT_REAL_HASH_MODE=$REAL_HASH_MODE \
+    "$INSTALLER" --platform codex --project-dir "$HASH_FAIL_PROJECT" \
+    --source "$SOURCE"
+then
+    fail "installer accepted a partial manifest after per-file hash failure"
+fi
+test ! -e "$HASH_FAIL_HOME/.codex" || fail "hash failure created an install target"
+
 # Same content is a no-op; changed content is refused; force creates a backup.
 LIFE_HOME=$TEST_ROOT/lifecycle-home
 LIFE_PROJECT=$TEST_ROOT/lifecycle-project

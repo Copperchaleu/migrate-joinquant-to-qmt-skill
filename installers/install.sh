@@ -189,37 +189,100 @@ validate_skill() {
 hash_file() {
     file_path=$1
     if command -v sha256sum >/dev/null 2>&1; then
-        sha256sum "$file_path" | awk '{print $1}'
+        if ! hash_output=$(sha256sum "$file_path"); then
+            echo "Error: failed to hash file: $file_path" >&2
+            return 1
+        fi
     elif command -v shasum >/dev/null 2>&1; then
-        shasum -a 256 "$file_path" | awk '{print $1}'
+        if ! hash_output=$(shasum -a 256 "$file_path"); then
+            echo "Error: failed to hash file: $file_path" >&2
+            return 1
+        fi
     else
         echo "Error: sha256sum or shasum is required" >&2
         return 1
     fi
+    file_hash=${hash_output%% *}
+    case "$file_hash" in
+        ''|*[!0123456789abcdefABCDEF]*)
+            echo "Error: hash command returned an invalid digest for: $file_path" >&2
+            return 1
+            ;;
+    esac
+    if [ "${#file_hash}" -ne 64 ]; then
+        echo "Error: hash command returned an invalid digest for: $file_path" >&2
+        return 1
+    fi
+    printf '%s\n' "$file_hash"
 }
 
 hash_stdin() {
     if command -v sha256sum >/dev/null 2>&1; then
-        sha256sum | awk '{print $1}'
+        if ! hash_output=$(sha256sum); then
+            echo "Error: failed to hash tree manifest" >&2
+            return 1
+        fi
     elif command -v shasum >/dev/null 2>&1; then
-        shasum -a 256 | awk '{print $1}'
+        if ! hash_output=$(shasum -a 256); then
+            echo "Error: failed to hash tree manifest" >&2
+            return 1
+        fi
     else
         echo "Error: sha256sum or shasum is required" >&2
         return 1
     fi
+    manifest_hash=${hash_output%% *}
+    case "$manifest_hash" in
+        ''|*[!0123456789abcdefABCDEF]*)
+            echo "Error: hash command returned an invalid tree digest" >&2
+            return 1
+            ;;
+    esac
+    if [ "${#manifest_hash}" -ne 64 ]; then
+        echo "Error: hash command returned an invalid tree digest" >&2
+        return 1
+    fi
+    printf '%s\n' "$manifest_hash"
 }
 
 hash_tree() {
     tree_path=$1
-    (
-        CDPATH= cd -- "$tree_path"
-        find . -type f ! -name .jq2qmt-install -print |
-            LC_ALL=C sort |
+    if ! unsorted_paths=$(
+        CDPATH= cd -- "$tree_path" || exit 1
+        find . -type f ! -name .jq2qmt-install -print
+    ); then
+        echo "Error: failed to enumerate skill tree: $tree_path" >&2
+        return 1
+    fi
+    if [ -n "$unsorted_paths" ]; then
+        if ! sorted_paths=$(printf '%s\n' "$unsorted_paths" | LC_ALL=C sort); then
+            echo "Error: failed to sort skill tree manifest" >&2
+            return 1
+        fi
+    else
+        sorted_paths=
+    fi
+    if ! manifest=$(
+        CDPATH= cd -- "$tree_path" || exit 1
+        if [ -n "$sorted_paths" ]; then
             while IFS= read -r relative_path; do
-                file_hash=$(hash_file "$relative_path")
+                if ! file_hash=$(hash_file "$relative_path"); then
+                    exit 1
+                fi
                 printf '%s  %s\n' "$file_hash" "$relative_path"
-            done
-    ) | hash_stdin
+            done <<EOF
+$sorted_paths
+EOF
+        fi
+    ); then
+        echo "Error: failed to build complete skill tree manifest" >&2
+        return 1
+    fi
+    if [ -n "$manifest" ]; then
+        printf '%s\n' "$manifest" | hash_stdin
+    else
+        printf '%s' "$manifest" | hash_stdin
+    fi
 }
 
 resolve_target() {
@@ -291,7 +354,10 @@ validate_exact_target() {
 install_local() {
     source_path=$1
     target_path=$2
-    source_hash=$(hash_tree "$source_path")
+    if ! source_hash=$(hash_tree "$source_path"); then
+        echo "Error: could not hash source skill tree" >&2
+        return 1
+    fi
     target_exists=0
     planned_action=install
 
@@ -301,7 +367,10 @@ install_local() {
     fi
     if [ -d "$target_path" ]; then
         target_exists=1
-        target_hash=$(hash_tree "$target_path")
+        if ! target_hash=$(hash_tree "$target_path"); then
+            echo "Error: could not hash installed skill tree" >&2
+            return 1
+        fi
         if [ "$source_hash" = "$target_hash" ]; then
             echo "already installed: platform=$PLATFORM scope=$SCOPE target=$target_path hash=$source_hash"
             return 0
